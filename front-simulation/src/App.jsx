@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { ArrowRight, RefreshCcw, Play, ChevronDown, ChevronUp } from 'lucide-react';
 
-export default function BPSKSimulator() {
+export default function DigitalModulationSimulator() {
   const [params, setParams] = useState({
+    modulation_type: 'bpsk',
     K: 100000,
     EbN0_dB: 4.0,
     alpha: 0.22,
     sps: 8,
     span: 10,
     seed: null,
-    display_length: 20
+    display_length: 20,
+    qam_order: 16 // Default QAM order
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -20,13 +22,23 @@ export default function BPSKSimulator() {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     const parsedValue = name === 'seed' && value === '' ? null :
-      ['K', 'sps', 'span', 'display_length', 'seed'].includes(name) ?
+      ['K', 'sps', 'span', 'display_length', 'seed', 'qam_order'].includes(name) ?
         parseInt(value, 10) : parseFloat(value);
 
     setParams({
       ...params,
       [name]: parsedValue
     });
+  };
+
+  const handleModulationChange = (e) => {
+    setParams({
+      ...params,
+      modulation_type: e.target.value
+    });
+    // Clear results when switching modulation types
+    setResults(null);
+    setError(null);
   };
 
   const handleRandomSeed = () => {
@@ -46,8 +58,23 @@ export default function BPSKSimulator() {
       // Display loading animation with subtle transition
       document.body.classList.add('cursor-progress');
       
-      // Updated to use the new advanced-simulate endpoint
-      const response = await fetch('http://localhost:8000/advanced-simulate', {
+      // Select the appropriate endpoint based on modulation type
+      let endpoint;
+      switch(params.modulation_type) {
+        case 'bpsk':
+          endpoint = 'http://localhost:8000/advanced-simulate-bpsk';
+          break;
+        case 'qpsk':
+          endpoint = 'http://localhost:8000/advanced-simulate-qpsk';
+          break;
+        case 'qam':
+          endpoint = 'http://localhost:8000/advanced-simulate-qam';
+          break;
+        default:
+          throw new Error('Invalid modulation type');
+      }
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -100,8 +127,8 @@ export default function BPSKSimulator() {
     <div className="flex flex-col min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
       <header className="bg-gradient-to-r from-blue-700 to-indigo-900 text-white p-6 lg:p-8 shadow-xl">
         <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl md:text-4xl font-bold tracking-tight">BPSK with SRRC Filter Simulation</h1>
-          <p className="opacity-90 mt-2 text-lg font-light">Interactive digital communication system analyzer</p>
+          <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Digital Modulation with SRRC Filter Simulation</h1>
+          <p className="opacity-90 mt-2 text-lg font-light">Interactive digital communication system analyzer for BPSK, QPSK, and QAM</p>
         </div>
       </header>
   
@@ -117,6 +144,39 @@ export default function BPSKSimulator() {
   
               <form onSubmit={handleSubmit} className="p-6">
                 <div className="space-y-6">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Modulation Type</label>
+                    <select
+                      name="modulation_type"
+                      value={params.modulation_type}
+                      onChange={handleModulationChange}
+                      className="w-full rounded-lg border border-slate-300 px-4 py-3 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm hover:border-blue-300"
+                    >
+                      <option value="bpsk">BPSK</option>
+                      <option value="qpsk">QPSK</option>
+                      <option value="qam">QAM</option>
+                    </select>
+                  </div>
+
+                  {params.modulation_type === 'qam' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">QAM Order (2^l)</label>
+                      <select
+                        name="qam_order"
+                        value={params.qam_order}
+                        onChange={handleInputChange}
+                        className="w-full rounded-lg border border-slate-300 px-4 py-3 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm hover:border-blue-300"
+                      >
+                        <option value="4">4-QAM</option>
+                        <option value="16">16-QAM</option>
+                        <option value="64">64-QAM</option>
+                        <option value="256">256-QAM</option>
+                        <option value="1024">1024-QAM</option>
+                      </select>
+                      <p className="mt-2 text-xs text-slate-500">Select the QAM constellation size (2^l, where l is bits per symbol)</p>
+                    </div>
+                  )}
+  
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-2">Number of Symbols (K)</label>
                     <input
@@ -370,13 +430,13 @@ export default function BPSKSimulator() {
                     <div className="p-6">
                       <div className="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition duration-300">
                         <img
-                          src={`data:image/png;base64,${results.plots.bpsk_constellation_tx}`}
-                          alt="BPSK Constellation at Transmitter"
+                          src={`data:image/png;base64,${results.plots.constellation_tx}`}
+                          alt={`${params.modulation_type.toUpperCase()} Constellation at Transmitter`}
                           className="w-full"
                         />
                       </div>
                       <div className="mt-4 text-sm text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                        BPSK constellation diagram showing the binary symbols at the transmitter
+                        {params.modulation_type.toUpperCase()} constellation diagram showing the symbols at the transmitter
                       </div>
                     </div>
                   )}
@@ -397,7 +457,7 @@ export default function BPSKSimulator() {
                       <div className="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition duration-300">
                         <img
                           src={`data:image/png;base64,${results.plots.constellation_tx_filtered}`}
-                          alt="Filtered Signal Constellation at Transmitter"
+                          alt={`Filtered ${params.modulation_type.toUpperCase()} Signal Constellation (Tx)`}
                           className="w-full"
                         />
                       </div>
@@ -449,7 +509,7 @@ export default function BPSKSimulator() {
                       <div className="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition duration-300">
                         <img
                           src={`data:image/png;base64,${results.plots.constellation_rx}`}
-                          alt="Received Signal Constellation"
+                          alt={`Received ${params.modulation_type.toUpperCase()} Signal Constellation (with Noise)`}
                           className="w-full"
                         />
                       </div>
@@ -501,7 +561,7 @@ export default function BPSKSimulator() {
                       <div className="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition duration-300">
                         <img
                           src={`data:image/png;base64,${results.plots.constellation_rx_filtered}`}
-                          alt="Constellation after Matched Filtering"
+                          alt={`${params.modulation_type.toUpperCase()} Constellation after Matched Filtering`}
                           className="w-full"
                         />
                       </div>
@@ -616,7 +676,12 @@ export default function BPSKSimulator() {
                                   <td className="px-4 py-3 border border-gray-100">{index}</td>
                                   <td className="px-4 py-3 border border-gray-100">{bit}</td>
                                   <td className="px-4 py-3 border border-gray-100">{received}</td>
-                                  <td className="px-4 py-3 border border-gray-100">{sampled.toFixed(3)}</td>
+                                  <td className="px-4 py-3 border border-gray-100">
+                                    {params.modulation_type === 'bpsk' 
+                                      ? sampled.toFixed(3)
+                                      : sampled.real.toFixed(3)
+                                    }
+                                  </td>
                                   <td className={`px-4 py-3 border border-gray-100 font-medium ${isError ? "text-red-600" : "text-green-600"}`}>
                                     {isError ? "Error" : "Correct"}
                                   </td>
@@ -677,11 +742,12 @@ export default function BPSKSimulator() {
                         </div>
                         
                         <div>
-                          <h3 className="text-lg font-medium text-gray-800 mb-3">About BPSK with SRRC</h3>
+                          <h3 className="text-lg font-medium text-gray-800 mb-3">About {params.modulation_type.toUpperCase()} with SRRC</h3>
                           <div className="bg-gray-50 p-4 rounded-lg border border-gray-100 text-gray-700">
                             <p>
-                              BPSK (Binary Phase Shift Keying) is one of the simplest forms of digital modulation, 
-                              where binary data is represented using two phase states (typically 0° and 180°).
+                              {params.modulation_type.toUpperCase()} ({params.modulation_type === 'bpsk' ? 'Binary' : 'Quadrature'} Phase Shift Keying) is a digital modulation scheme where 
+                              {params.modulation_type === 'bpsk' ? ' binary data is represented using two phase states (typically 0° and 180°).' : 
+                              ' two bits are transmitted per symbol using four phase states (typically 45°, 135°, 225°, and 315°).'}
                             </p>
                             <p className="mt-2">
                               The Square Root Raised Cosine (SRRC) filter is used for pulse shaping to reduce 
