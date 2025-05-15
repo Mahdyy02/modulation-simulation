@@ -19,6 +19,9 @@ export default function DigitalModulationSimulator() {
   const [error, setError] = useState(null);
   const [expandedSection, setExpandedSection] = useState('all');
 
+  const [berCurveResults, setBerCurveResults] = useState(null);
+  const [isLoadingBerCurve, setIsLoadingBerCurve] = useState(false);
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     const parsedValue = name === 'seed' && value === '' ? null :
@@ -53,6 +56,7 @@ export default function DigitalModulationSimulator() {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setBerCurveResults(null); // Clear BER curve results when running normal simulation
     
     try {
       // Display loading animation with subtle transition
@@ -81,7 +85,7 @@ export default function DigitalModulationSimulator() {
           'Accept': 'application/json',
         },
         body: JSON.stringify(params),
-        signal: AbortSignal.timeout(30000), // 30s timeout
+        signal: AbortSignal.timeout(120000), // Increased timeout to 120 seconds
       });
 
       if (!response.ok) {
@@ -90,6 +94,11 @@ export default function DigitalModulationSimulator() {
       }
 
       const data = await response.json();
+      
+      // Validate numerical values before setting results
+      if (isNaN(data.results.ber) || isNaN(data.results.theoretical_ber)) {
+        throw new Error('Invalid numerical results received from server');
+      }
       
       // Smooth transition for results display
       setResults(data);
@@ -104,10 +113,55 @@ export default function DigitalModulationSimulator() {
       }, 100);
     } catch (err) {
       console.error('Simulation error:', err);
-      setError(err.message || 'Failed to run simulation. Please try again.');
+      if (err.name === 'TimeoutError') {
+        setError('Simulation timed out. Please try with fewer symbols or lower Eb/N0 values.');
+      } else {
+        setError(err.message || 'Failed to run simulation. Please try again.');
+      }
     } finally {
       setIsLoading(false);
       document.body.classList.remove('cursor-progress');
+    }
+  };
+
+  const handleBerCurveSubmit = async (e) => {
+    e.preventDefault();
+    setIsLoadingBerCurve(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('http://localhost:8000/ber-curve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          modulation_type: params.modulation_type,
+          K: params.K,
+          alpha: params.alpha,
+          sps: params.sps,
+          span: params.span,
+          seed: params.seed,
+          qam_order: params.qam_order,
+          ebno_range: [0, 20],
+          num_points: 41  // Match backend's default of 41 points for better resolution
+        }),
+        signal: AbortSignal.timeout(60000), // Increased timeout to 60 seconds
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Server responded with status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setBerCurveResults(data);
+    } catch (err) {
+      console.error('BER curve error:', err);
+      setError(err.message || 'Failed to calculate BER curve. Please try again.');
+    } finally {
+      setIsLoadingBerCurve(false);
     }
   };
 
@@ -183,12 +237,12 @@ export default function DigitalModulationSimulator() {
                       type="number"
                       name="K"
                       min="1000"
-                      max="1000000"
+                      max="10000000"
                       value={params.K}
                       onChange={handleInputChange}
                       className="w-full rounded-lg border border-slate-300 px-4 py-3 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm hover:border-blue-300"
                     />
-                    <p className="mt-2 text-xs text-slate-500">Range: 1,000 - 1,000,000</p>
+                    <p className="mt-2 text-xs text-slate-500">Range: 1,000 - 10,000,000</p>
                   </div>
   
                   <div>
@@ -198,7 +252,7 @@ export default function DigitalModulationSimulator() {
                         type="range"
                         name="EbN0_dB"
                         min="0"
-                        max="20"
+                        max="1000"
                         step="0.1"
                         value={params.EbN0_dB}
                         onChange={handleInputChange}
@@ -207,7 +261,7 @@ export default function DigitalModulationSimulator() {
                       <div className="flex justify-between text-xs text-slate-600 mt-2">
                         <span>0 dB</span>
                         <span className="px-2 py-1 bg-blue-100 rounded-md text-blue-800 font-medium">{params.EbN0_dB} dB</span>
-                        <span>20 dB</span>
+                        <span>1000 dB</span>
                       </div>
                     </div>
                   </div>
@@ -603,41 +657,92 @@ export default function DigitalModulationSimulator() {
                     className="bg-gradient-to-r from-purple-50 to-blue-50 p-5 border-b border-purple-100 flex justify-between items-center cursor-pointer hover:bg-gradient-to-r hover:from-purple-100 hover:to-blue-100 transition duration-300"
                     onClick={() => toggleSection('ber_curve')}
                   >
-                    <h2 className="text-xl font-semibold text-purple-800">BER Performance</h2>
+                    <h2 className="text-xl font-semibold text-purple-800">BER vs Eb/N0 Curve</h2>
                     {isExpanded('ber_curve') ? <ChevronUp size={22} className="text-purple-600" /> : <ChevronDown size={22} className="text-purple-600" />}
                   </div>
   
                   {isExpanded('ber_curve') && (
                     <div className="p-6">
-                      <div className="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition duration-300">
-                        <div className="p-4">
-                          <div className="text-lg text-purple-800 font-semibold mb-4">Performance Summary</div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
-                              <div className="text-sm font-medium text-purple-700">Simulated BER</div>
-                              <div className="text-2xl font-bold mt-1 text-purple-900">
-                                {results.results.ber.toExponential(4)}
-                              </div>
-                            </div>
-                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                              <div className="text-sm font-medium text-blue-700">Theoretical BER</div>
-                              <div className="text-2xl font-bold mt-1 text-blue-900">
-                                {results.results.theoretical_ber.toExponential(4)}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="mt-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
-                            <p className="mb-2 text-slate-700 font-medium">Theory vs. Simulation</p>
-                            <p className="text-slate-600">
-                              For BPSK in AWGN channels, the theoretical BER is calculated as:
-                              P<sub>e</sub> = 0.5 × erfc(√(E<sub>b</sub>/N<sub>0</sub>))
-                            </p>
-                            <p className="mt-2 text-slate-600">
-                              Current simulation parameters: E<sub>b</sub>/N<sub>0</sub> = {params.EbN0_dB} dB, 
-                              K = {params.K.toLocaleString()} symbols
-                            </p>
-                          </div>
+                      <div className="space-y-6">
+                        <div className="flex justify-center">
+                          <button
+                            onClick={handleBerCurveSubmit}
+                            disabled={isLoadingBerCurve}
+                            className="flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-blue-700 hover:from-purple-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 text-white font-medium py-3 px-5 rounded-lg shadow-md transition duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
+                          >
+                            {isLoadingBerCurve ? (
+                              <>
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                <span>Calculating...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play size={18} />
+                                <span>Calculate BER Curve</span>
+                              </>
+                            )}
+                          </button>
                         </div>
+
+                        {isLoadingBerCurve && (
+                          <div className="flex flex-col items-center justify-center py-8">
+                            <div className="w-20 h-20 border-4 border-purple-600 border-t-transparent rounded-full animate-spin"></div>
+                            <h3 className="mt-6 text-xl font-medium text-purple-800">Calculating BER Curve</h3>
+                            <p className="mt-3 text-purple-600">This may take a few moments...</p>
+                          </div>
+                        )}
+
+                        {berCurveResults && !isLoadingBerCurve && (
+                          <div className="space-y-6">
+                            <div className="bg-white border rounded-xl overflow-hidden shadow-sm hover:shadow-md transition duration-300">
+                              <img
+                                src={`data:image/png;base64,${berCurveResults.ber_curve_plot}`}
+                                alt="BER vs Eb/N0 Curve"
+                                className="w-full"
+                              />
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                                <div className="text-sm font-medium text-purple-700">Simulated BER</div>
+                                <div className="text-2xl font-bold mt-1 text-purple-900">
+                                  {berCurveResults.ber_simulated[berCurveResults.ber_simulated.length - 1].toExponential(4)}
+                                </div>
+                                <div className="text-xs text-purple-600 mt-2">
+                                  at Eb/N0 = {berCurveResults.ebno_points[berCurveResults.ebno_points.length - 1]} dB
+                                </div>
+                              </div>
+                              
+                              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                <div className="text-sm font-medium text-blue-700">Theoretical BER</div>
+                                <div className="text-2xl font-bold mt-1 text-blue-900">
+                                  {berCurveResults.ber_theoretical[berCurveResults.ber_theoretical.length - 1].toExponential(4)}
+                                </div>
+                                <div className="text-xs text-blue-600 mt-2">
+                                  at Eb/N0 = {berCurveResults.ebno_points[berCurveResults.ebno_points.length - 1]} dB
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 text-sm bg-slate-50 p-4 rounded-lg border border-slate-100">
+                              <p className="mb-2 text-slate-700 font-medium">About BER Curves</p>
+                              <p className="text-slate-600">
+                                The BER curve shows how the Bit Error Rate varies with the signal-to-noise ratio (Eb/N0).
+                                The blue line represents the simulated BER, while the red dashed line shows the theoretical BER.
+                                As Eb/N0 increases, the BER typically decreases exponentially.
+                              </p>
+                              <p className="mt-2 text-slate-600">
+                                The theoretical BER for BPSK is given by: P<sub>e</sub> = 0.5 × erfc(√(E<sub>b</sub>/N<sub>0</sub>))
+                              </p>
+                              <p className="mt-2 text-slate-600">
+                                For QPSK, the theoretical BER is: P<sub>e</sub> = erfc(√(E<sub>b</sub>/N<sub>0</sub>)) - 0.25 × erfc²(√(E<sub>b</sub>/N<sub>0</sub>))
+                              </p>
+                              <p className="mt-2 text-slate-600">
+                                For M-QAM, the theoretical BER is approximately: P<sub>e</sub> ≈ (4/log2(M)) × (1-1/√M) × Q(√(3×log2(M)×E<sub>b</sub>/N<sub>0</sub>/(M-1)))
+                              </p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}

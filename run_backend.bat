@@ -1,0 +1,3 @@
+@echo off
+echo Starting Digital Modulation Simulator Backend...
+uvicorn backend:app --reload --host 0.0.0.0 --port 8000 
