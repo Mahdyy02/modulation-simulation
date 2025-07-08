@@ -2,6 +2,9 @@
 
 This project is an interactive digital communication system simulator that allows users to analyze and visualize different digital modulation schemes (BPSK, QPSK, and QAM) with Square Root Raised Cosine (SRRC) pulse shaping. The simulator provides detailed visualizations of constellation diagrams, eye diagrams, and BER performance curves.
 
+**DEMO**:
+https://youtu.be/9OqWnFhAaYg
+
 ## Features
 
 - Support for multiple modulation schemes:
